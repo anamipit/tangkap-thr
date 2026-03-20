@@ -109,17 +109,33 @@ const ZIGZAG_MONEY_VALUES = [1000, 2000];
 const SUPER_FAST_MONEY_VALUES = [5000];
 
 const SOUNDS = {
-  COIN: 'https://www.myinstants.com/media/sounds/cash-register-kaching-sound-effect-audio-extractor.mp3',
-  BOMB: 'https://www.myinstants.com/media/sounds/explosion_x8o6Z2a.mp3',
-  WIN: 'https://www.myinstants.com/media/sounds/kids-cheering.mp3',
-  FAIL: 'https://www.myinstants.com/media/sounds/spongebob-fail.mp3',
-  QUESTION: 'https://www.myinstants.com/media/sounds/anime-wow-sound-effect.mp3'
+  COIN: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3',
+  BOMB: 'https://assets.mixkit.co/active_storage/sfx/170/170-preview.mp3',
+  WIN: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3',
+  FAIL: 'https://assets.mixkit.co/active_storage/sfx/2955/2955-preview.mp3',
+  QUESTION: 'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3'
 };
 
-const playSound = (url: string) => {
-  const audio = new Audio(url);
-  audio.volume = 0.5;
-  audio.play().catch(e => console.log("Audio play failed:", e));
+const audioElements: Record<string, HTMLAudioElement> = {};
+if (typeof window !== 'undefined') {
+  Object.entries(SOUNDS).forEach(([key, url]) => {
+    const audio = new Audio(url);
+    audio.preload = 'auto';
+    audioElements[key] = audio;
+  });
+}
+
+const playSound = (key: keyof typeof SOUNDS) => {
+  try {
+    const audio = audioElements[key];
+    if (audio) {
+      const clone = audio.cloneNode() as HTMLAudioElement;
+      clone.volume = 0.5;
+      clone.play().catch(e => console.log("Audio play failed:", e));
+    }
+  } catch (e) {
+    console.error("Error playing sound:", e);
+  }
 };
 
 // --- Components ---
@@ -396,11 +412,11 @@ export default function App() {
 
   const handleCatch = (item: FallingItem) => {
     if (item.type === 'money') {
-      playSound(SOUNDS.COIN);
+      playSound('COIN');
       scoreRef.current += (item.value || 0);
       setScore(scoreRef.current);
       if (scoreRef.current >= MAX_THR) {
-        playSound(SOUNDS.WIN);
+        playSound('WIN');
         setGameState('win');
         confetti({
           particleCount: 150,
@@ -409,11 +425,11 @@ export default function App() {
         });
       }
     } else if (item.type === 'bomb') {
-      playSound(SOUNDS.BOMB);
-      setTimeout(() => playSound(SOUNDS.FAIL), 800);
+      playSound('BOMB');
+      setTimeout(() => playSound('FAIL'), 800);
       setGameState('gameover');
     } else if (item.type === 'question') {
-      playSound(SOUNDS.QUESTION);
+      playSound('QUESTION');
       setGameState('paused');
       if (questionBank.length > 0) {
         const nextQ = questionBank[0];
@@ -427,11 +443,11 @@ export default function App() {
 
   const handleAnswer = (index: number) => {
     if (activeQuestion && index === activeQuestion.correctIndex) {
-      playSound(SOUNDS.COIN);
+      playSound('COIN');
       scoreRef.current += 1000;
       setScore(scoreRef.current);
       if (scoreRef.current >= MAX_THR) {
-        playSound(SOUNDS.WIN);
+        playSound('WIN');
         setGameState('win');
         confetti({
           particleCount: 150,
@@ -443,7 +459,7 @@ export default function App() {
       }
       setActiveQuestion(null);
     } else {
-      playSound(SOUNDS.FAIL);
+      playSound('FAIL');
       setGameState('gameover');
     }
   };
