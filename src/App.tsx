@@ -147,15 +147,16 @@ export default function App() {
           const newY = item.y + (gameAreaHeight / (FALL_DURATION * 60)); // Simple linear fall
           
           // Check if item is caught
-          // We add a HITBOX_TOLERANCE so the collision isn't triggered by a single pixel touching.
-          // The object must overlap by at least this many pixels to count.
-          const HITBOX_TOLERANCE = 20; 
+          // Asymmetric Hitbox (Golden Ratio): 
+          // - For bombs: Tolerance is large (25px). You have to hit the dead center of the bomb to trigger it.
+          // - For money/questions: Tolerance is small (5px). Very responsive and easy to catch.
+          const tolerance = item.type === 'bomb' ? 25 : 5; 
           
           const isCaught = 
-            newY + ITEM_SIZE - HITBOX_TOLERANCE >= gameAreaHeight - BASKET_HEIGHT &&
-            newY + HITBOX_TOLERANCE <= gameAreaHeight &&
-            item.x + ITEM_SIZE - HITBOX_TOLERANCE >= basketX &&
-            item.x + HITBOX_TOLERANCE <= basketX + BASKET_WIDTH;
+            newY + ITEM_SIZE - tolerance >= gameAreaHeight - BASKET_HEIGHT &&
+            newY + tolerance <= gameAreaHeight &&
+            item.x + ITEM_SIZE - tolerance >= basketX &&
+            item.x + tolerance <= basketX + BASKET_WIDTH;
 
           if (isCaught) {
             handleCatch(item);
@@ -273,12 +274,12 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white font-sans overflow-hidden flex flex-col items-center justify-center p-4">
+    <div className="h-[100dvh] w-full bg-slate-900 text-white font-sans overflow-hidden flex flex-col items-center justify-center sm:p-4">
       {/* Game Container */}
       <div 
         id="game-area"
         ref={gameAreaRef}
-        className="relative w-full max-w-md aspect-[9/16] bg-gradient-to-b from-sky-400 to-emerald-500 rounded-3xl shadow-2xl overflow-hidden border-8 border-slate-800"
+        className="relative w-full max-w-lg h-full bg-gradient-to-b from-sky-400 to-emerald-500 sm:rounded-3xl shadow-2xl overflow-hidden sm:border-8 border-slate-800"
       >
         {/* Background Elements */}
         <div className="absolute inset-0 opacity-20 pointer-events-none">
@@ -606,9 +607,8 @@ export default function App() {
       </div>
 
       {/* Instructions for Desktop */}
-      <div className="mt-8 text-slate-500 text-xs text-center max-w-xs hidden md:block">
-        <p>Gunakan <strong>Panah Kiri / Kanan</strong> di keyboard atau mouse untuk menggeser keranjang.</p>
-        <p className="mt-1">Game ini dioptimalkan untuk tampilan mobile.</p>
+      <div className="absolute bottom-4 left-4 text-slate-500 text-xs max-w-[200px] hidden md:block">
+        <p>Gunakan <strong>Panah Kiri / Kanan</strong> di keyboard atau drag mouse untuk menggeser keranjang.</p>
       </div>
     </div>
   );
