@@ -20,10 +20,11 @@ import {
 } from 'lucide-react';
 import { domToPng } from 'modern-screenshot';
 import confetti from 'canvas-confetti';
+import { GoogleGenAI, Type } from '@google/genai';
 
 // --- Constants & Types ---
 
-const MAX_THR = 50000;
+const MAX_THR = 10000;
 const ITEM_SIZE = 60;
 const BASKET_WIDTH = 100;
 const BASKET_HEIGHT = 80;
@@ -41,6 +42,7 @@ interface FallingItem {
   vx?: number;
   vyMultiplier?: number;
   question?: Question;
+  isSuperFast?: boolean;
 }
 
 interface Question {
@@ -49,36 +51,62 @@ interface Question {
   correctIndex: number;
 }
 
-const LEBARAN_QUESTIONS: Question[] = [
+const ISLAMIC_QUESTIONS: Question[] = [
   {
-    text: "Kapan nikah?",
-    options: ["Besok kalau gak hujan", "Tunggu hilal", "Lagi nabung buat mahar", "Doakan saja"],
-    correctIndex: 3
-  },
-  {
-    text: "Kapan lulus?",
-    options: ["Semester depan (mungkin)", "Lagi nunggu dosen pembimbing", "Tunggu wisuda", "Doakan saja"],
-    correctIndex: 3
-  },
-  {
-    text: "Gajinya berapa?",
-    options: ["Cukup buat beli cilok", "Rahasia perusahaan", "Alhamdulillah cukup", "Doakan saja"],
-    correctIndex: 2
-  },
-  {
-    text: "Kerja di mana?",
-    options: ["Di depan laptop", "Di perusahaan multinasional", "Wirausaha mandiri", "Doakan saja"],
+    text: "Apa arti puasa secara bahasa?",
+    options: ["Menahan", "Makan sahur", "Menunggu maghrib", "Tidur seharian"],
     correctIndex: 0
   },
   {
-    text: "Kapan punya anak?",
-    options: ["Tunggu dikasih", "Lagi program", "Nanti kalau sudah waktunya", "Doakan saja"],
+    text: "Malam Lailatul Qadar lebih baik dari...",
+    options: ["1000 bintang", "1000 bulan", "1000 purnama", "1000 alasan mantan"],
+    correctIndex: 1
+  },
+  {
+    text: "Makanan khas yang wajib ada saat Idul Fitri di Indonesia adalah...",
+    options: ["Pizza", "Sushi", "Ketupat", "Nasi Padang"],
+    correctIndex: 2
+  },
+  {
+    text: "Malaikat yang bertugas mencatat amal baik adalah...",
+    options: ["Raqib", "Atid", "Jibril", "Izrail"],
+    correctIndex: 0
+  },
+  {
+    text: "Hal yang paling membatalkan puasa di siang hari bolong adalah...",
+    options: ["Menangis", "Ngupil", "Scroll TikTok", "Minum es teh manis"],
     correctIndex: 3
+  },
+  {
+    text: "Rukun Islam yang ke-3 adalah...",
+    options: ["Zakat", "Puasa", "Haji", "Menikah"],
+    correctIndex: 0
+  },
+  {
+    text: "Kapan biasanya malam Lailatul Qadar turun?",
+    options: ["Malam minggu", "10 malam terakhir ganjil", "Malam 1 Suro", "Pas lagi hujan"],
+    correctIndex: 1
+  },
+  {
+    text: "Nabi yang ditelan ikan paus adalah...",
+    options: ["Nabi Nuh AS", "Nabi Musa AS", "Nabi Yunus AS", "Nabi Khidir AS"],
+    correctIndex: 2
+  },
+  {
+    text: "Waktu mulai menahan diri dari makan dan minum saat puasa disebut...",
+    options: ["Buka", "Sahur", "Imsak/Subuh", "Maghrib"],
+    correctIndex: 2
+  },
+  {
+    text: "Takbir keliling biasanya dilakukan pada saat...",
+    options: ["Malam jumat kliwon", "Malam tahun baru", "Malam takbiran", "Malam minggu"],
+    correctIndex: 2
   }
 ];
 
 const STANDARD_MONEY_VALUES = [5, 10, 50, 100];
-const ZIGZAG_MONEY_VALUES = [1000, 2000, 5000, 10000];
+const ZIGZAG_MONEY_VALUES = [1000, 2000];
+const SUPER_FAST_MONEY_VALUES = [5000];
 
 // --- Components ---
 
@@ -88,6 +116,8 @@ export default function App() {
   const [score, setScore] = useState(0);
   const [items, setItems] = useState<FallingItem[]>([]);
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
+  const [questionBank, setQuestionBank] = useState<Question[]>([]);
+  const [waitingForQuestion, setWaitingForQuestion] = useState(false);
   const [basketX, setBasketX] = useState(0);
   const [gameAreaWidth, setGameAreaWidth] = useState(0);
   const [gameAreaHeight, setGameAreaHeight] = useState(0);
@@ -97,6 +127,8 @@ export default function App() {
   const nextItemId = useRef(0);
   const gameLoopRef = useRef<number | null>(null);
   const lastSpawnTime = useRef(0);
+  const itemsRef = useRef<FallingItem[]>([]);
+  const isFetchingBackground = useRef(false);
 
   // Initialize game area dimensions
   useEffect(() => {
@@ -143,52 +175,61 @@ export default function App() {
         lastSpawnTime.current = time;
       }
 
-      // Update item positions and check collisions
-      setItems(prevItems => {
-        const newItems: FallingItem[] = [];
-        for (const item of prevItems) {
-          const speedMult = item.vyMultiplier || 1;
-          const newY = item.y + (gameAreaHeight / (FALL_DURATION * 60)) * speedMult;
-          
-          let newX = item.x;
-          let newVx = item.vx || 0;
-          
-          if (newVx !== 0) {
-            newX += newVx;
-            // Bounce off walls
-            if (newX <= 0) {
-              newX = 0;
-              newVx = Math.abs(newVx);
-            } else if (newX >= gameAreaWidth - ITEM_SIZE) {
-              newX = gameAreaWidth - ITEM_SIZE;
-              newVx = -Math.abs(newVx);
-            }
-          }
-          
-          // Check if item is caught
-          // Asymmetric Hitbox (Golden Ratio): 
-          // - For bombs: Tolerance is large (25px). You have to hit the dead center of the bomb to trigger it.
-          // - For money/questions: Tolerance is small (5px). Very responsive and easy to catch.
-          const tolerance = item.type === 'bomb' ? 25 : 5; 
-          
-          const isCaught = 
-            newY + ITEM_SIZE - tolerance >= gameAreaHeight - BASKET_HEIGHT &&
-            newY + tolerance <= gameAreaHeight &&
-            newX + ITEM_SIZE - tolerance >= basketX &&
-            newX + tolerance <= basketX + BASKET_WIDTH;
+      let caughtItem: FallingItem | null = null;
+      const newItems: FallingItem[] = [];
 
-          if (isCaught) {
-            handleCatch(item);
-            continue; // Item removed
-          }
-
-          // Check if item missed
-          if (newY < gameAreaHeight) {
-            newItems.push({ ...item, x: newX, y: newY, vx: newVx });
+      for (const item of itemsRef.current) {
+        const speedMult = item.vyMultiplier || 1;
+        const newY = item.y + (gameAreaHeight / (FALL_DURATION * 60)) * speedMult;
+        
+        let newX = item.x;
+        let newVx = item.vx || 0;
+        
+        if (item.isSuperFast && Math.random() < 0.05) {
+          newVx = -newVx; // Randomly change direction
+        }
+        
+        if (newVx !== 0) {
+          newX += newVx;
+          // Bounce off walls
+          if (newX <= 0) {
+            newX = 0;
+            newVx = Math.abs(newVx);
+          } else if (newX >= gameAreaWidth - ITEM_SIZE) {
+            newX = gameAreaWidth - ITEM_SIZE;
+            newVx = -Math.abs(newVx);
           }
         }
-        return newItems;
-      });
+        
+        // Check if item is caught
+        // Asymmetric Hitbox (Golden Ratio): 
+        // - For bombs: Tolerance is large (25px). You have to hit the dead center of the bomb to trigger it.
+        // - For money/questions: Tolerance is small (5px). Very responsive and easy to catch.
+        const tolerance = item.type === 'bomb' ? 25 : 5; 
+        
+        const isCaught = 
+          newY + ITEM_SIZE - tolerance >= gameAreaHeight - BASKET_HEIGHT &&
+          newY + tolerance <= gameAreaHeight &&
+          newX + ITEM_SIZE - tolerance >= basketX &&
+          newX + tolerance <= basketX + BASKET_WIDTH;
+
+        if (isCaught) {
+          caughtItem = item;
+          continue; // Item removed
+        }
+
+        // Check if item missed
+        if (newY < gameAreaHeight) {
+          newItems.push({ ...item, x: newX, y: newY, vx: newVx });
+        }
+      }
+      
+      itemsRef.current = newItems;
+      setItems(newItems);
+
+      if (caughtItem) {
+        handleCatch(caughtItem);
+      }
 
       gameLoopRef.current = requestAnimationFrame(loop);
     };
@@ -203,9 +244,9 @@ export default function App() {
     const rand = Math.random();
     let type: ItemType = 'money';
     let value: number | undefined;
-    let question: Question | undefined;
     let vx = 0;
     let vyMultiplier = 1;
+    let isSuperFast = false;
 
     if (rand < 0.15) {
       // 15% chance: Bomb
@@ -213,8 +254,14 @@ export default function App() {
     } else if (rand < 0.25) {
       // 10% chance: Question
       type = 'question';
-      question = LEBARAN_QUESTIONS[Math.floor(Math.random() * LEBARAN_QUESTIONS.length)];
-    } else if (rand < 0.40) {
+    } else if (rand < 0.30) {
+      // 5% chance: Super Fast Coin (Very Rare, 5000)
+      type = 'money';
+      value = SUPER_FAST_MONEY_VALUES[Math.floor(Math.random() * SUPER_FAST_MONEY_VALUES.length)];
+      vx = (Math.random() > 0.5 ? 1 : -1) * (6 + Math.random() * 4); // Very fast horizontal
+      vyMultiplier = 2.0 + Math.random() * 1.0; // Fall 2x to 3x faster
+      isSuperFast = true;
+    } else if (rand < 0.45) {
       // 15% chance: Zigzag Coin (Rare, High Value)
       type = 'money';
       value = ZIGZAG_MONEY_VALUES[Math.floor(Math.random() * ZIGZAG_MONEY_VALUES.length)];
@@ -222,7 +269,7 @@ export default function App() {
       vx = (Math.random() > 0.5 ? 1 : -1) * (3 + Math.random() * 5); // Speed between 3 and 8
       vyMultiplier = 1.4 + Math.random() * 0.8; // Fall 1.4x to 2.2x faster
     } else {
-      // 60% chance: Standard Coin (Frequent, Low Value)
+      // 55% chance: Standard Coin (Frequent, Low Value)
       type = 'money';
       value = STANDARD_MONEY_VALUES[Math.floor(Math.random() * STANDARD_MONEY_VALUES.length)];
       vx = 0; // Straight down
@@ -234,15 +281,77 @@ export default function App() {
       id: nextItemId.current++,
       type,
       value,
-      question,
       x,
       y: -ITEM_SIZE,
       vx,
-      vyMultiplier
+      vyMultiplier,
+      isSuperFast
     };
 
-    setItems(prev => [...prev, newItem]);
+    itemsRef.current.push(newItem);
   };
+
+  const fetchQuestionsBatch = async (count: number = 5) => {
+    if (isFetchingBackground.current) return;
+    isFetchingBackground.current = true;
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Buat ${count} pertanyaan pilihan ganda seputar Ramadhan, Idul Fitri, Lailatul Qadar, atau pengetahuan dasar Islam. Pertanyaan dan opsi jawaban boleh menjebak, mengecoh, atau lucu, tapi harus ada 1 jawaban yang benar secara fakta/logika. Berikan 4 opsi jawaban untuk masing-masing pertanyaan.`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                text: { type: Type.STRING, description: "Teks pertanyaan" },
+                options: { 
+                  type: Type.ARRAY, 
+                  items: { type: Type.STRING },
+                  description: "4 opsi jawaban"
+                },
+                correctIndex: { type: Type.INTEGER, description: "Index jawaban benar (0-3)" }
+              },
+              required: ["text", "options", "correctIndex"]
+            }
+          }
+        }
+      });
+      const data = JSON.parse(response.text || "[]");
+      if (Array.isArray(data)) {
+        setQuestionBank(prev => [...prev, ...data]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch questions batch", error);
+      // Fallback to prevent infinite loops and unblock the game
+      setQuestionBank(prev => [...prev, {
+        text: "Waduh, Ustadz Gemini lagi sibuk nyiapin soal. Puasa batal kalau...",
+        options: ["Makan siang", "Tidur", "Mandi", "Senyum"],
+        correctIndex: 0
+      }]);
+    } finally {
+      isFetchingBackground.current = false;
+    }
+  };
+
+  // Effect to keep the bank populated
+  useEffect(() => {
+    if (questionBank.length < 3 && !isFetchingBackground.current) {
+      fetchQuestionsBatch(5);
+    }
+  }, [questionBank.length]);
+
+  // Effect to handle waiting state
+  useEffect(() => {
+    if (waitingForQuestion && questionBank.length > 0) {
+      const nextQ = questionBank[0];
+      setQuestionBank(prev => prev.slice(1));
+      setActiveQuestion(nextQ);
+      setWaitingForQuestion(false);
+    }
+  }, [questionBank, waitingForQuestion]);
 
   const handleCatch = (item: FallingItem) => {
     if (item.type === 'money') {
@@ -263,12 +372,31 @@ export default function App() {
       setGameState('gameover');
     } else if (item.type === 'question') {
       setGameState('paused');
-      setActiveQuestion(item.question || null);
+      if (questionBank.length > 0) {
+        const nextQ = questionBank[0];
+        setQuestionBank(prev => prev.slice(1));
+        setActiveQuestion(nextQ);
+      } else {
+        setWaitingForQuestion(true);
+      }
     }
   };
 
   const handleAnswer = (index: number) => {
     if (activeQuestion && index === activeQuestion.correctIndex) {
+      setScore(prev => {
+        const newScore = prev + 1000;
+        if (newScore >= MAX_THR) {
+          setGameState('win');
+          confetti({
+            particleCount: 150,
+            spread: 70,
+            origin: { y: 0.6 }
+          });
+          return MAX_THR;
+        }
+        return newScore;
+      });
       setGameState('playing');
       setActiveQuestion(null);
     } else {
@@ -279,6 +407,7 @@ export default function App() {
   const startGame = () => {
     if (!playerName.trim()) return;
     setScore(0);
+    itemsRef.current = [];
     setItems([]);
     setGameState('playing');
     lastSpawnTime.current = performance.now();
@@ -286,9 +415,20 @@ export default function App() {
 
   const restartGame = () => {
     setScore(0);
+    itemsRef.current = [];
     setItems([]);
     setGameState('playing');
     lastSpawnTime.current = performance.now();
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (gameState !== 'playing' || !gameAreaRef.current) return;
+    if (e.pointerType === 'mouse' && e.buttons !== 1) return; // Only drag if mouse button is pressed
+    
+    const rect = gameAreaRef.current.getBoundingClientRect();
+    let newX = e.clientX - rect.left - BASKET_WIDTH / 2;
+    newX = Math.max(0, Math.min(newX, gameAreaWidth - BASKET_WIDTH));
+    setBasketX(newX);
   };
 
   const shareResult = async () => {
@@ -314,7 +454,8 @@ export default function App() {
       <div 
         id="game-area"
         ref={gameAreaRef}
-        className="relative w-full max-w-lg h-full bg-gradient-to-b from-sky-400 to-emerald-500 sm:rounded-3xl shadow-2xl overflow-hidden sm:border-8 border-slate-800"
+        onPointerMove={handlePointerMove}
+        className="relative w-full max-w-lg h-full bg-gradient-to-b from-sky-400 to-emerald-500 sm:rounded-3xl shadow-2xl overflow-hidden sm:border-8 border-slate-800 touch-none select-none"
       >
         {/* Background Elements */}
         <div className="absolute inset-0 opacity-20 pointer-events-none">
@@ -358,7 +499,7 @@ export default function App() {
                 TANGKAP THR
               </h1>
               <p className="text-slate-400 text-center mb-8 text-sm">
-                Kumpulkan Rp 50.000 untuk menang! <br/>
+                Kumpulkan Rp 10.000 untuk menang! <br/>
                 Hati-hati bom & pertanyaan maut keluarga.
               </p>
 
@@ -427,16 +568,16 @@ export default function App() {
         {items.map(item => (
           <div 
             key={item.id}
-            className="absolute pointer-events-none"
+            className="absolute top-0 left-0 pointer-events-none"
             style={{ 
-              left: item.x, 
-              top: item.y, 
+              transform: `translate3d(${item.x}px, ${item.y}px, 0)`,
               width: ITEM_SIZE, 
-              height: ITEM_SIZE 
+              height: ITEM_SIZE,
+              willChange: 'transform'
             }}
           >
             {item.type === 'money' && (
-              <div className="w-full h-full bg-yellow-400 rounded-full border-4 border-yellow-600 flex items-center justify-center shadow-lg transform rotate-12">
+              <div className={`w-full h-full bg-yellow-400 rounded-full border-4 ${item.isSuperFast ? 'border-red-500 animate-spin shadow-red-500/50' : 'border-yellow-600 transform rotate-12'} flex items-center justify-center shadow-lg`}>
                 <span className="text-[10px] font-black text-yellow-900">Rp{item.value}</span>
               </div>
             )}
@@ -455,25 +596,16 @@ export default function App() {
 
         {/* Basket */}
         {gameState !== 'start' && (
-          <motion.div
-            drag="x"
-            dragConstraints={gameAreaRef}
-            dragElastic={0}
-            dragMomentum={false}
-            onDrag={(_, info) => {
-              const newX = basketX + info.delta.x;
-              if (newX >= 0 && newX <= gameAreaWidth - BASKET_WIDTH) {
-                setBasketX(newX);
-              }
-            }}
-            className="absolute bottom-4 z-30 cursor-grab active:cursor-grabbing"
+          <div
+            className="absolute bottom-4 left-0 z-30"
             style={{ 
               width: BASKET_WIDTH, 
               height: BASKET_HEIGHT,
-              left: basketX
+              transform: `translate3d(${basketX}px, 0, 0)`,
+              willChange: 'transform'
             }}
           >
-            <div className="w-full h-full relative">
+            <div className="w-full h-full relative pointer-events-none">
               {/* Basket Visual */}
               <div className="absolute bottom-0 w-full h-12 bg-orange-800 rounded-b-xl border-t-4 border-orange-900 shadow-xl overflow-hidden">
                 {/* Woven pattern */}
@@ -505,12 +637,12 @@ export default function App() {
                 )}
               </AnimatePresence>
             </div>
-          </motion.div>
+          </div>
         )}
 
         {/* Question Modal */}
         <AnimatePresence>
-          {gameState === 'paused' && activeQuestion && (
+          {gameState === 'paused' && (waitingForQuestion || activeQuestion) && (
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -518,31 +650,40 @@ export default function App() {
               className="absolute inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-lg"
             >
               <div className="w-full bg-slate-800 rounded-3xl p-6 border-2 border-purple-500 shadow-2xl">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-12 h-12 bg-purple-500 rounded-2xl flex items-center justify-center">
-                    <HelpCircle className="w-6 h-6 text-white" />
+                {waitingForQuestion ? (
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mb-4" />
+                    <p className="text-purple-400 font-bold animate-pulse text-center">Ustadz Gemini sedang meracik pertanyaan...</p>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-purple-400 text-sm uppercase tracking-wider">Pertanyaan Keluarga</h3>
-                    <p className="text-xs text-slate-400 italic">Jawab dengan benar atau game berakhir!</p>
-                  </div>
-                </div>
+                ) : activeQuestion ? (
+                  <>
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-12 h-12 bg-purple-500 rounded-2xl flex items-center justify-center">
+                        <HelpCircle className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-purple-400 text-sm uppercase tracking-wider">Pertanyaan Keluarga</h3>
+                        <p className="text-xs text-slate-400 italic">Jawab dengan benar atau game berakhir!</p>
+                      </div>
+                    </div>
 
-                <h2 className="text-xl font-bold mb-6 leading-tight">
-                  "{activeQuestion.text}"
-                </h2>
+                    <h2 className="text-xl font-bold mb-6 leading-tight">
+                      "{activeQuestion.text}"
+                    </h2>
 
-                <div className="grid grid-cols-1 gap-3">
-                  {activeQuestion.options.map((option, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleAnswer(idx)}
-                      className="w-full bg-slate-700 hover:bg-slate-600 text-left p-4 rounded-xl text-sm font-medium transition-colors border border-slate-600 active:scale-95"
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      {activeQuestion.options.map((option, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleAnswer(idx)}
+                          className="w-full bg-slate-700 hover:bg-slate-600 text-left p-4 rounded-xl text-sm font-medium transition-colors border border-slate-600 active:scale-95"
+                        >
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
               </div>
             </motion.div>
           )}
