@@ -207,10 +207,18 @@ export default function App() {
       return;
     }
 
+    let lastTime = performance.now();
+
     const loop = (time: number) => {
+      const dt = time - lastTime;
+      lastTime = time;
+      
+      // Cap dt to prevent huge jumps if tab is inactive
+      const cappedDt = Math.min(dt, 50);
+
       // Handle smooth keyboard movement
       if (keysRef.current.ArrowLeft || keysRef.current.ArrowRight) {
-        const MOVE_SPEED = 12; // pixels per frame
+        const MOVE_SPEED = 600 * (cappedDt / 1000); // 600 pixels per second
         let newX = basketXRef.current;
         if (keysRef.current.ArrowLeft) newX = Math.max(0, newX - MOVE_SPEED);
         if (keysRef.current.ArrowRight) newX = Math.min(gameAreaWidth - BASKET_WIDTH, newX + MOVE_SPEED);
@@ -229,17 +237,22 @@ export default function App() {
       let caughtItem: FallingItem | null = null;
       let itemsChanged = false;
 
+      const baseFallSpeed = gameAreaHeight / FALL_DURATION; // pixels per second
+
       for (let i = itemsRef.current.length - 1; i >= 0; i--) {
         const item = itemsRef.current[i];
         const speedMult = item.vyMultiplier || 1;
-        item.y += (gameAreaHeight / (FALL_DURATION * 60)) * speedMult;
+        
+        // Update Y position based on deltaTime
+        item.y += baseFallSpeed * speedMult * (cappedDt / 1000);
         
         if (item.isSuperFast && Math.random() < 0.05) {
           item.vx = -(item.vx || 0); // Randomly change direction
         }
         
         if (item.vx !== 0 && item.vx !== undefined) {
-          item.x += item.vx;
+          // Update X position based on deltaTime (vx was originally per-frame, now scaled)
+          item.x += item.vx * (cappedDt / 16.66);
           // Bounce off walls
           if (item.x <= 0) {
             item.x = 0;
@@ -612,11 +625,11 @@ export default function App() {
         {/* HUD */}
         {gameState !== 'start' && (
           <div className="absolute top-6 left-0 right-0 px-6 z-40 flex justify-between items-start pointer-events-none">
-            <div className="bg-slate-900/40 backdrop-blur-sm p-3 rounded-2xl border border-white/10">
+            <div className="bg-slate-900/80 p-3 rounded-2xl border border-white/10">
               <div className="text-[10px] uppercase tracking-widest text-white/60 font-bold">Pemain</div>
               <div className="text-sm font-bold truncate max-w-[100px]">{playerName}</div>
             </div>
-            <div className="bg-slate-900/40 backdrop-blur-sm p-3 rounded-2xl border border-white/10 text-right">
+            <div className="bg-slate-900/80 p-3 rounded-2xl border border-white/10 text-right">
               <div className="text-[10px] uppercase tracking-widest text-white/60 font-bold">Total THR</div>
               <div className="text-xl font-black text-yellow-400">
                 Rp {score.toLocaleString('id-ID')}
@@ -645,17 +658,17 @@ export default function App() {
             }}
           >
             {item.type === 'money' && (
-              <div className={`w-full h-full bg-yellow-400 rounded-full border-4 ${item.isSuperFast ? 'border-red-500 animate-spin shadow-red-500/50' : 'border-yellow-600 transform rotate-12'} flex items-center justify-center shadow-lg`}>
+              <div className={`w-full h-full bg-yellow-400 rounded-full border-4 ${item.isSuperFast ? 'border-red-500 animate-spin' : 'border-yellow-600 transform rotate-12'} flex items-center justify-center`}>
                 <span className="text-[10px] font-black text-yellow-900">Rp{item.value}</span>
               </div>
             )}
             {item.type === 'bomb' && (
-              <div className="w-full h-full bg-slate-900 rounded-full border-4 border-slate-700 flex items-center justify-center shadow-lg">
+              <div className="w-full h-full bg-slate-900 rounded-full border-4 border-slate-700 flex items-center justify-center">
                 <Bomb className="w-8 h-8 text-red-500" />
               </div>
             )}
             {item.type === 'question' && (
-              <div className="w-full h-full bg-purple-500 rounded-full border-4 border-purple-700 flex items-center justify-center shadow-lg animate-pulse">
+              <div className="w-full h-full bg-purple-500 rounded-full border-4 border-purple-700 flex items-center justify-center">
                 <HelpCircle className="w-8 h-8 text-white" />
               </div>
             )}
