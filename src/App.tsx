@@ -11,10 +11,12 @@ import {
   Skull,
   HelpCircle,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Loader2
 } from 'lucide-react';
 import { domToPng } from 'modern-screenshot';
 import confetti from 'canvas-confetti';
+import { GoogleGenAI, Type } from '@google/genai';
 
 // --- Constants & Types ---
 
@@ -360,10 +362,50 @@ export default function App() {
   const [playerName, setPlayerName] = useState('');
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [isWin, setIsWin] = useState(false);
+  const [isGeneratingQuestion, setIsGeneratingQuestion] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const gameAreaRef = useRef<HTMLDivElement>(null);
+
+  const generateQuestion = async () => {
+    setGameState('paused');
+    engineRef.current?.pause();
+    setIsGeneratingQuestion(true);
+    
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite-preview',
+        contents: "Buatkan 1 pertanyaan pilihan ganda lucu dan menjebak seputar lebaran, puasa, atau budaya mudik di Indonesia. Berikan 4 pilihan jawaban dan tentukan index jawaban yang benar (0-3).",
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              text: { type: Type.STRING, description: "Pertanyaan lucu/menjebak" },
+              options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "4 pilihan jawaban" },
+              correctIndex: { type: Type.INTEGER, description: "Index jawaban benar (0-3)" }
+            },
+            required: ["text", "options", "correctIndex"]
+          }
+        }
+      });
+      
+      if (response.text) {
+        const data = JSON.parse(response.text);
+        setActiveQuestion(data);
+      } else {
+        throw new Error("Empty response");
+      }
+    } catch (error) {
+      console.error("Failed to generate question:", error);
+      const randomQ = ISLAMIC_QUESTIONS[Math.floor(Math.random() * ISLAMIC_QUESTIONS.length)];
+      setActiveQuestion(randomQ);
+    } finally {
+      setIsGeneratingQuestion(false);
+    }
+  };
 
   // Initialize Game Engine
   useEffect(() => {
@@ -384,10 +426,7 @@ export default function App() {
           engineRef.current?.stop();
         },
         onQuestion: () => {
-          setGameState('paused');
-          engineRef.current?.pause();
-          const randomQ = ISLAMIC_QUESTIONS[Math.floor(Math.random() * ISLAMIC_QUESTIONS.length)];
-          setActiveQuestion(randomQ);
+          generateQuestion();
         }
       });
       engineRef.current.start();
@@ -586,40 +625,48 @@ export default function App() {
 
         {/* Question Modal */}
         <AnimatePresence>
-          {gameState === 'paused' && activeQuestion && (
+          {gameState === 'paused' && (
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 z-[60] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-lg pointer-events-auto"
             >
-              <div className="w-full bg-slate-800 rounded-3xl p-6 border-2 border-purple-500 shadow-2xl">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-12 h-12 bg-purple-500 rounded-2xl flex items-center justify-center">
-                    <HelpCircle className="w-6 h-6 text-white" />
+              {isGeneratingQuestion ? (
+                <div className="flex flex-col items-center justify-center text-center">
+                  <Loader2 className="w-12 h-12 text-purple-500 animate-spin mb-4" />
+                  <h3 className="text-xl font-bold text-white mb-2">Keluarga Sedang Berkumpul...</h3>
+                  <p className="text-slate-400 text-sm">Mencari pertanyaan jebakan yang pas buat kamu!</p>
+                </div>
+              ) : activeQuestion ? (
+                <div className="w-full bg-slate-800 rounded-3xl p-6 border-2 border-purple-500 shadow-2xl">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-12 h-12 bg-purple-500 rounded-2xl flex items-center justify-center">
+                      <HelpCircle className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-purple-400 text-sm uppercase tracking-wider">Pertanyaan Keluarga</h3>
+                      <p className="text-xs text-slate-400 italic">Jawab dengan benar atau game berakhir!</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-purple-400 text-sm uppercase tracking-wider">Pertanyaan Keluarga</h3>
-                    <p className="text-xs text-slate-400 italic">Jawab dengan benar atau game berakhir!</p>
+
+                  <h2 className="text-xl font-bold mb-6 leading-tight">
+                    "{activeQuestion.text}"
+                  </h2>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    {activeQuestion.options.map((option, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleAnswer(idx)}
+                        className="w-full bg-slate-700 hover:bg-slate-600 text-left p-4 rounded-xl text-sm font-medium transition-colors border border-slate-600 active:scale-95"
+                      >
+                        {option}
+                      </button>
+                    ))}
                   </div>
                 </div>
-
-                <h2 className="text-xl font-bold mb-6 leading-tight">
-                  "{activeQuestion.text}"
-                </h2>
-
-                <div className="grid grid-cols-1 gap-3">
-                  {activeQuestion.options.map((option, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleAnswer(idx)}
-                      className="w-full bg-slate-700 hover:bg-slate-600 text-left p-4 rounded-xl text-sm font-medium transition-colors border border-slate-600 active:scale-95"
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              ) : null}
             </motion.div>
           )}
         </AnimatePresence>
