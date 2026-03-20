@@ -131,6 +131,7 @@ export default function App() {
   const itemsRef = useRef<FallingItem[]>([]);
   const isFetchingBackground = useRef(false);
   const superFastSpawned = useRef(false);
+  const keysRef = useRef({ ArrowLeft: false, ArrowRight: false });
 
   // Initialize game area dimensions
   useEffect(() => {
@@ -152,24 +153,22 @@ export default function App() {
   // Keyboard Controls for Desktop
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (gameState !== 'playing') return;
-      
-      const MOVE_SPEED = 30; // pixels per key press
-      let newX = basketXRef.current;
-      if (e.key === 'ArrowLeft') {
-        newX = Math.max(0, newX - MOVE_SPEED);
-      } else if (e.key === 'ArrowRight') {
-        newX = Math.min(gameAreaWidth - BASKET_WIDTH, newX + MOVE_SPEED);
-      }
-      basketXRef.current = newX;
-      if (basketRef.current) {
-        basketRef.current.style.transform = `translate3d(${newX}px, 0, 0)`;
-      }
+      if (e.key === 'ArrowLeft') keysRef.current.ArrowLeft = true;
+      if (e.key === 'ArrowRight') keysRef.current.ArrowRight = true;
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') keysRef.current.ArrowLeft = false;
+      if (e.key === 'ArrowRight') keysRef.current.ArrowRight = false;
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gameState, gameAreaWidth]);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
 
   // Game Loop
   useEffect(() => {
@@ -179,6 +178,18 @@ export default function App() {
     }
 
     const loop = (time: number) => {
+      // Handle smooth keyboard movement
+      if (keysRef.current.ArrowLeft || keysRef.current.ArrowRight) {
+        const MOVE_SPEED = 12; // pixels per frame
+        let newX = basketXRef.current;
+        if (keysRef.current.ArrowLeft) newX = Math.max(0, newX - MOVE_SPEED);
+        if (keysRef.current.ArrowRight) newX = Math.min(gameAreaWidth - BASKET_WIDTH, newX + MOVE_SPEED);
+        basketXRef.current = newX;
+        if (basketRef.current) {
+          basketRef.current.style.transform = `translate3d(${newX}px, 0, 0)`;
+        }
+      }
+
       // Spawn items
       if (time - lastSpawnTime.current > SPAWN_INTERVAL) {
         spawnItem();
@@ -316,7 +327,7 @@ export default function App() {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Buat ${count} pertanyaan pilihan ganda seputar Ramadhan, Idul Fitri, Lailatul Qadar, atau pengetahuan dasar Islam. Pertanyaan dan opsi jawaban boleh menjebak, mengecoh, atau lucu, tapi harus ada 1 jawaban yang benar secara fakta/logika. Berikan 4 opsi jawaban untuk masing-masing pertanyaan.`,
+        contents: `Buat ${count} pertanyaan pilihan ganda seputar Ramadhan, Idul Fitri, Lailatul Qadar, atau pengetahuan dasar Islam. Pertanyaan dan opsi jawaban boleh menjebak, mengecoh, atau lucu, tapi harus ada 1 jawaban yang benar secara fakta/logika. PASTIKAN pertanyaan dan jawaban benar, shahih, dan tidak mengada-ada. Berikan 4 opsi jawaban untuk masing-masing pertanyaan.`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -343,12 +354,10 @@ export default function App() {
       }
     } catch (error) {
       console.error("Failed to fetch questions batch", error);
-      // Fallback to prevent infinite loops and unblock the game
-      setQuestionBank(prev => [...prev, {
-        text: "Waduh, Ustadz Gemini lagi sibuk nyiapin soal. Puasa batal kalau...",
-        options: ["Makan siang", "Tidur", "Mandi", "Senyum"],
-        correctIndex: 0
-      }]);
+      // Fallback to prevent infinite loops and unblock the game using ISLAMIC_QUESTIONS
+      const shuffled = [...ISLAMIC_QUESTIONS].sort(() => 0.5 - Math.random());
+      const fallbackQuestions = shuffled.slice(0, count);
+      setQuestionBank(prev => [...prev, ...fallbackQuestions]);
     } finally {
       isFetchingBackground.current = false;
     }
