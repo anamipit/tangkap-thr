@@ -108,6 +108,20 @@ const STANDARD_MONEY_VALUES = [5, 10, 50, 100];
 const ZIGZAG_MONEY_VALUES = [1000, 2000];
 const SUPER_FAST_MONEY_VALUES = [5000];
 
+const SOUNDS = {
+  COIN: 'https://www.myinstants.com/media/sounds/cash-register-kaching-sound-effect-audio-extractor.mp3',
+  BOMB: 'https://www.myinstants.com/media/sounds/explosion_x8o6Z2a.mp3',
+  WIN: 'https://www.myinstants.com/media/sounds/kids-cheering.mp3',
+  FAIL: 'https://www.myinstants.com/media/sounds/spongebob-fail.mp3',
+  QUESTION: 'https://www.myinstants.com/media/sounds/anime-wow-sound-effect.mp3'
+};
+
+const playSound = (url: string) => {
+  const audio = new Audio(url);
+  audio.volume = 0.5;
+  audio.play().catch(e => console.log("Audio play failed:", e));
+};
+
 // --- Components ---
 
 export default function App() {
@@ -278,8 +292,8 @@ export default function App() {
     if (rand < 0.15) {
       // 15% chance: Bomb
       type = 'bomb';
-    } else if (rand < 0.25) {
-      // 10% chance: Question
+    } else if (rand < 0.19) {
+      // 4% chance: Question (dikurangi dari 10% agar lebih jarang)
       type = 'question';
     } else if (!superFastSpawned.current && scoreRef.current >= 2000 && Math.random() < 0.05) {
       // Super Fast Coin (Exactly once per game, mid-game)
@@ -289,7 +303,7 @@ export default function App() {
       vyMultiplier = 2.0 + Math.random() * 1.0; // Fall 2x to 3x faster
       isSuperFast = true;
       superFastSpawned.current = true;
-    } else if (rand < 0.45) {
+    } else if (rand < 0.34) {
       // 15% chance: Zigzag Coin (Rare, High Value)
       type = 'money';
       value = ZIGZAG_MONEY_VALUES[Math.floor(Math.random() * ZIGZAG_MONEY_VALUES.length)];
@@ -297,7 +311,7 @@ export default function App() {
       vx = (Math.random() > 0.5 ? 1 : -1) * (3 + Math.random() * 5); // Speed between 3 and 8
       vyMultiplier = 1.4 + Math.random() * 0.8; // Fall 1.4x to 2.2x faster
     } else {
-      // 55% chance: Standard Coin (Frequent, Low Value)
+      // 66% chance: Standard Coin (Frequent, Low Value)
       type = 'money';
       value = STANDARD_MONEY_VALUES[Math.floor(Math.random() * STANDARD_MONEY_VALUES.length)];
       vx = 0; // Straight down
@@ -382,9 +396,11 @@ export default function App() {
 
   const handleCatch = (item: FallingItem) => {
     if (item.type === 'money') {
+      playSound(SOUNDS.COIN);
       scoreRef.current += (item.value || 0);
       setScore(scoreRef.current);
       if (scoreRef.current >= MAX_THR) {
+        playSound(SOUNDS.WIN);
         setGameState('win');
         confetti({
           particleCount: 150,
@@ -393,8 +409,11 @@ export default function App() {
         });
       }
     } else if (item.type === 'bomb') {
+      playSound(SOUNDS.BOMB);
+      setTimeout(() => playSound(SOUNDS.FAIL), 800);
       setGameState('gameover');
     } else if (item.type === 'question') {
+      playSound(SOUNDS.QUESTION);
       setGameState('paused');
       if (questionBank.length > 0) {
         const nextQ = questionBank[0];
@@ -408,9 +427,11 @@ export default function App() {
 
   const handleAnswer = (index: number) => {
     if (activeQuestion && index === activeQuestion.correctIndex) {
+      playSound(SOUNDS.COIN);
       scoreRef.current += 1000;
       setScore(scoreRef.current);
       if (scoreRef.current >= MAX_THR) {
+        playSound(SOUNDS.WIN);
         setGameState('win');
         confetti({
           particleCount: 150,
@@ -422,6 +443,7 @@ export default function App() {
       }
       setActiveQuestion(null);
     } else {
+      playSound(SOUNDS.FAIL);
       setGameState('gameover');
     }
   };
