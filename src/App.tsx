@@ -23,7 +23,7 @@ import confetti from 'canvas-confetti';
 
 // --- Constants & Types ---
 
-const MAX_THR = 10000;
+const MAX_THR = 50000;
 const ITEM_SIZE = 60;
 const BASKET_WIDTH = 100;
 const BASKET_HEIGHT = 80;
@@ -38,6 +38,8 @@ interface FallingItem {
   value?: number;
   x: number;
   y: number;
+  vx?: number;
+  vyMultiplier?: number;
   question?: Question;
 }
 
@@ -75,7 +77,8 @@ const LEBARAN_QUESTIONS: Question[] = [
   }
 ];
 
-const MONEY_VALUES = [5, 10, 20, 50, 100];
+const STANDARD_MONEY_VALUES = [5, 10, 50, 100];
+const ZIGZAG_MONEY_VALUES = [1000, 2000, 5000, 10000];
 
 // --- Components ---
 
@@ -144,7 +147,23 @@ export default function App() {
       setItems(prevItems => {
         const newItems: FallingItem[] = [];
         for (const item of prevItems) {
-          const newY = item.y + (gameAreaHeight / (FALL_DURATION * 60)); // Simple linear fall
+          const speedMult = item.vyMultiplier || 1;
+          const newY = item.y + (gameAreaHeight / (FALL_DURATION * 60)) * speedMult;
+          
+          let newX = item.x;
+          let newVx = item.vx || 0;
+          
+          if (newVx !== 0) {
+            newX += newVx;
+            // Bounce off walls
+            if (newX <= 0) {
+              newX = 0;
+              newVx = Math.abs(newVx);
+            } else if (newX >= gameAreaWidth - ITEM_SIZE) {
+              newX = gameAreaWidth - ITEM_SIZE;
+              newVx = -Math.abs(newVx);
+            }
+          }
           
           // Check if item is caught
           // Asymmetric Hitbox (Golden Ratio): 
@@ -155,8 +174,8 @@ export default function App() {
           const isCaught = 
             newY + ITEM_SIZE - tolerance >= gameAreaHeight - BASKET_HEIGHT &&
             newY + tolerance <= gameAreaHeight &&
-            item.x + ITEM_SIZE - tolerance >= basketX &&
-            item.x + tolerance <= basketX + BASKET_WIDTH;
+            newX + ITEM_SIZE - tolerance >= basketX &&
+            newX + tolerance <= basketX + BASKET_WIDTH;
 
           if (isCaught) {
             handleCatch(item);
@@ -165,7 +184,7 @@ export default function App() {
 
           // Check if item missed
           if (newY < gameAreaHeight) {
-            newItems.push({ ...item, y: newY });
+            newItems.push({ ...item, x: newX, y: newY, vx: newVx });
           }
         }
         return newItems;
@@ -185,15 +204,29 @@ export default function App() {
     let type: ItemType = 'money';
     let value: number | undefined;
     let question: Question | undefined;
+    let vx = 0;
+    let vyMultiplier = 1;
 
     if (rand < 0.15) {
+      // 15% chance: Bomb
       type = 'bomb';
     } else if (rand < 0.25) {
+      // 10% chance: Question
       type = 'question';
       question = LEBARAN_QUESTIONS[Math.floor(Math.random() * LEBARAN_QUESTIONS.length)];
-    } else {
+    } else if (rand < 0.40) {
+      // 15% chance: Zigzag Coin (Rare, High Value)
       type = 'money';
-      value = MONEY_VALUES[Math.floor(Math.random() * MONEY_VALUES.length)];
+      value = ZIGZAG_MONEY_VALUES[Math.floor(Math.random() * ZIGZAG_MONEY_VALUES.length)];
+      // Zigzag movement: random horizontal velocity and faster fall
+      vx = (Math.random() > 0.5 ? 1 : -1) * (3 + Math.random() * 5); // Speed between 3 and 8
+      vyMultiplier = 1.4 + Math.random() * 0.8; // Fall 1.4x to 2.2x faster
+    } else {
+      // 60% chance: Standard Coin (Frequent, Low Value)
+      type = 'money';
+      value = STANDARD_MONEY_VALUES[Math.floor(Math.random() * STANDARD_MONEY_VALUES.length)];
+      vx = 0; // Straight down
+      vyMultiplier = 1; // Normal speed
     }
 
     const x = Math.random() * (gameAreaWidth - ITEM_SIZE);
@@ -203,7 +236,9 @@ export default function App() {
       value,
       question,
       x,
-      y: -ITEM_SIZE
+      y: -ITEM_SIZE,
+      vx,
+      vyMultiplier
     };
 
     setItems(prev => [...prev, newItem]);
@@ -323,7 +358,7 @@ export default function App() {
                 TANGKAP THR
               </h1>
               <p className="text-slate-400 text-center mb-8 text-sm">
-                Kumpulkan Rp 10.000 untuk menang! <br/>
+                Kumpulkan Rp 50.000 untuk menang! <br/>
                 Hati-hati bom & pertanyaan maut keluarga.
               </p>
 
