@@ -114,11 +114,12 @@ export default function App() {
   const [gameState, setGameState] = useState<'start' | 'playing' | 'paused' | 'win' | 'gameover'>('start');
   const [playerName, setPlayerName] = useState('');
   const [score, setScore] = useState(0);
+  const scoreRef = useRef(0);
   const [items, setItems] = useState<FallingItem[]>([]);
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [questionBank, setQuestionBank] = useState<Question[]>([]);
   const [waitingForQuestion, setWaitingForQuestion] = useState(false);
-  const [basketX, setBasketX] = useState(0);
+  const basketXRef = useRef(0);
   const [gameAreaWidth, setGameAreaWidth] = useState(0);
   const [gameAreaHeight, setGameAreaHeight] = useState(0);
   
@@ -129,6 +130,7 @@ export default function App() {
   const lastSpawnTime = useRef(0);
   const itemsRef = useRef<FallingItem[]>([]);
   const isFetchingBackground = useRef(false);
+  const superFastSpawned = useRef(false);
 
   // Initialize game area dimensions
   useEffect(() => {
@@ -136,7 +138,10 @@ export default function App() {
       if (gameAreaRef.current) {
         setGameAreaWidth(gameAreaRef.current.offsetWidth);
         setGameAreaHeight(gameAreaRef.current.offsetHeight);
-        setBasketX(gameAreaRef.current.offsetWidth / 2 - BASKET_WIDTH / 2);
+        basketXRef.current = gameAreaRef.current.offsetWidth / 2 - BASKET_WIDTH / 2;
+        if (basketRef.current) {
+          basketRef.current.style.transform = `translate3d(${basketXRef.current}px, 0, 0)`;
+        }
       }
     };
     updateDimensions();
@@ -150,10 +155,15 @@ export default function App() {
       if (gameState !== 'playing') return;
       
       const MOVE_SPEED = 30; // pixels per key press
+      let newX = basketXRef.current;
       if (e.key === 'ArrowLeft') {
-        setBasketX(prev => Math.max(0, prev - MOVE_SPEED));
+        newX = Math.max(0, newX - MOVE_SPEED);
       } else if (e.key === 'ArrowRight') {
-        setBasketX(prev => Math.min(gameAreaWidth - BASKET_WIDTH, prev + MOVE_SPEED));
+        newX = Math.min(gameAreaWidth - BASKET_WIDTH, newX + MOVE_SPEED);
+      }
+      basketXRef.current = newX;
+      if (basketRef.current) {
+        basketRef.current.style.transform = `translate3d(${newX}px, 0, 0)`;
       }
     };
 
@@ -176,56 +186,62 @@ export default function App() {
       }
 
       let caughtItem: FallingItem | null = null;
-      const newItems: FallingItem[] = [];
+      let itemsChanged = false;
 
-      for (const item of itemsRef.current) {
+      for (let i = itemsRef.current.length - 1; i >= 0; i--) {
+        const item = itemsRef.current[i];
         const speedMult = item.vyMultiplier || 1;
-        const newY = item.y + (gameAreaHeight / (FALL_DURATION * 60)) * speedMult;
-        
-        let newX = item.x;
-        let newVx = item.vx || 0;
+        item.y += (gameAreaHeight / (FALL_DURATION * 60)) * speedMult;
         
         if (item.isSuperFast && Math.random() < 0.05) {
-          newVx = -newVx; // Randomly change direction
+          item.vx = -(item.vx || 0); // Randomly change direction
         }
         
-        if (newVx !== 0) {
-          newX += newVx;
+        if (item.vx !== 0 && item.vx !== undefined) {
+          item.x += item.vx;
           // Bounce off walls
-          if (newX <= 0) {
-            newX = 0;
-            newVx = Math.abs(newVx);
-          } else if (newX >= gameAreaWidth - ITEM_SIZE) {
-            newX = gameAreaWidth - ITEM_SIZE;
-            newVx = -Math.abs(newVx);
+          if (item.x <= 0) {
+            item.x = 0;
+            item.vx = Math.abs(item.vx);
+          } else if (item.x >= gameAreaWidth - ITEM_SIZE) {
+            item.x = gameAreaWidth - ITEM_SIZE;
+            item.vx = -Math.abs(item.vx);
           }
         }
         
         // Check if item is caught
-        // Asymmetric Hitbox (Golden Ratio): 
-        // - For bombs: Tolerance is large (25px). You have to hit the dead center of the bomb to trigger it.
-        // - For money/questions: Tolerance is small (5px). Very responsive and easy to catch.
         const tolerance = item.type === 'bomb' ? 25 : 5; 
         
         const isCaught = 
-          newY + ITEM_SIZE - tolerance >= gameAreaHeight - BASKET_HEIGHT &&
-          newY + tolerance <= gameAreaHeight &&
-          newX + ITEM_SIZE - tolerance >= basketX &&
-          newX + tolerance <= basketX + BASKET_WIDTH;
+          item.y + ITEM_SIZE - tolerance >= gameAreaHeight - BASKET_HEIGHT &&
+          item.y + tolerance <= gameAreaHeight &&
+          item.x + ITEM_SIZE - tolerance >= basketXRef.current &&
+          item.x + tolerance <= basketXRef.current + BASKET_WIDTH;
 
         if (isCaught) {
           caughtItem = item;
+          itemsRef.current.splice(i, 1);
+          itemsChanged = true;
           continue; // Item removed
         }
 
         // Check if item missed
-        if (newY < gameAreaHeight) {
-          newItems.push({ ...item, x: newX, y: newY, vx: newVx });
+        if (item.y >= gameAreaHeight) {
+          itemsRef.current.splice(i, 1);
+          itemsChanged = true;
+          continue;
+        }
+
+        // Direct DOM update for performance
+        const el = document.getElementById(`item-${item.id}`);
+        if (el) {
+          el.style.transform = `translate3d(${item.x}px, ${item.y}px, 0)`;
         }
       }
       
-      itemsRef.current = newItems;
-      setItems(newItems);
+      if (itemsChanged) {
+        setItems([...itemsRef.current]);
+      }
 
       if (caughtItem) {
         handleCatch(caughtItem);
@@ -238,7 +254,7 @@ export default function App() {
     return () => {
       if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current);
     };
-  }, [gameState, basketX, gameAreaHeight, gameAreaWidth]);
+  }, [gameState, gameAreaHeight, gameAreaWidth]);
 
   const spawnItem = () => {
     const rand = Math.random();
@@ -254,13 +270,14 @@ export default function App() {
     } else if (rand < 0.25) {
       // 10% chance: Question
       type = 'question';
-    } else if (rand < 0.30) {
-      // 5% chance: Super Fast Coin (Very Rare, 5000)
+    } else if (!superFastSpawned.current && scoreRef.current >= 2000 && Math.random() < 0.05) {
+      // Super Fast Coin (Exactly once per game, mid-game)
       type = 'money';
-      value = SUPER_FAST_MONEY_VALUES[Math.floor(Math.random() * SUPER_FAST_MONEY_VALUES.length)];
+      value = SUPER_FAST_MONEY_VALUES[0];
       vx = (Math.random() > 0.5 ? 1 : -1) * (6 + Math.random() * 4); // Very fast horizontal
       vyMultiplier = 2.0 + Math.random() * 1.0; // Fall 2x to 3x faster
       isSuperFast = true;
+      superFastSpawned.current = true;
     } else if (rand < 0.45) {
       // 15% chance: Zigzag Coin (Rare, High Value)
       type = 'money';
@@ -289,6 +306,7 @@ export default function App() {
     };
 
     itemsRef.current.push(newItem);
+    setItems([...itemsRef.current]); // Trigger render to create DOM node
   };
 
   const fetchQuestionsBatch = async (count: number = 5) => {
@@ -355,19 +373,16 @@ export default function App() {
 
   const handleCatch = (item: FallingItem) => {
     if (item.type === 'money') {
-      setScore(prev => {
-        const newScore = prev + (item.value || 0);
-        if (newScore >= MAX_THR) {
-          setGameState('win');
-          confetti({
-            particleCount: 150,
-            spread: 70,
-            origin: { y: 0.6 }
-          });
-          return MAX_THR;
-        }
-        return newScore;
-      });
+      scoreRef.current += (item.value || 0);
+      setScore(scoreRef.current);
+      if (scoreRef.current >= MAX_THR) {
+        setGameState('win');
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+      }
     } else if (item.type === 'bomb') {
       setGameState('gameover');
     } else if (item.type === 'question') {
@@ -384,20 +399,18 @@ export default function App() {
 
   const handleAnswer = (index: number) => {
     if (activeQuestion && index === activeQuestion.correctIndex) {
-      setScore(prev => {
-        const newScore = prev + 1000;
-        if (newScore >= MAX_THR) {
-          setGameState('win');
-          confetti({
-            particleCount: 150,
-            spread: 70,
-            origin: { y: 0.6 }
-          });
-          return MAX_THR;
-        }
-        return newScore;
-      });
-      setGameState('playing');
+      scoreRef.current += 1000;
+      setScore(scoreRef.current);
+      if (scoreRef.current >= MAX_THR) {
+        setGameState('win');
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+      } else {
+        setGameState('playing');
+      }
       setActiveQuestion(null);
     } else {
       setGameState('gameover');
@@ -406,7 +419,9 @@ export default function App() {
 
   const startGame = () => {
     if (!playerName.trim()) return;
+    scoreRef.current = 0;
     setScore(0);
+    superFastSpawned.current = false;
     itemsRef.current = [];
     setItems([]);
     setGameState('playing');
@@ -414,7 +429,9 @@ export default function App() {
   };
 
   const restartGame = () => {
+    scoreRef.current = 0;
     setScore(0);
+    superFastSpawned.current = false;
     itemsRef.current = [];
     setItems([]);
     setGameState('playing');
@@ -428,7 +445,10 @@ export default function App() {
     const rect = gameAreaRef.current.getBoundingClientRect();
     let newX = e.clientX - rect.left - BASKET_WIDTH / 2;
     newX = Math.max(0, Math.min(newX, gameAreaWidth - BASKET_WIDTH));
-    setBasketX(newX);
+    basketXRef.current = newX;
+    if (basketRef.current) {
+      basketRef.current.style.transform = `translate3d(${newX}px, 0, 0)`;
+    }
   };
 
   const shareResult = async () => {
@@ -568,6 +588,7 @@ export default function App() {
         {items.map(item => (
           <div 
             key={item.id}
+            id={`item-${item.id}`}
             className="absolute top-0 left-0 pointer-events-none"
             style={{ 
               transform: `translate3d(${item.x}px, ${item.y}px, 0)`,
@@ -597,11 +618,12 @@ export default function App() {
         {/* Basket */}
         {gameState !== 'start' && (
           <div
+            ref={basketRef}
             className="absolute bottom-4 left-0 z-30"
             style={{ 
               width: BASKET_WIDTH, 
               height: BASKET_HEIGHT,
-              transform: `translate3d(${basketX}px, 0, 0)`,
+              transform: `translate3d(${basketXRef.current}px, 0, 0)`,
               willChange: 'transform'
             }}
           >
