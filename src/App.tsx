@@ -666,8 +666,8 @@ export default function App() {
                 TANGKAP THR
               </h1>
               <p className="text-slate-400 text-center mb-8 text-sm">
-                Kumpulkan Rp 10.000 untuk menang! <br/>
-                Hati-hati bom & pertanyaan maut keluarga.
+                Tangkap THR sebanyak-banyaknya. <br/>
+                Hindari bom. Dan jawab pertanyaan!
               </p>
 
               <div className="w-full space-y-4">
@@ -713,12 +713,6 @@ export default function App() {
               <div className="text-[10px] uppercase tracking-widest text-white/60 font-bold">Total THR</div>
               <div className="text-xl font-black text-yellow-400">
                 Rp {score.toLocaleString('id-ID')}
-              </div>
-              <div className="w-full h-1 bg-white/20 rounded-full mt-1 overflow-hidden">
-                <motion.div 
-                  className="h-full bg-yellow-400"
-                  animate={{ width: `${(score / MAX_THR) * 100}%` }}
-                />
               </div>
             </div>
           </div>
@@ -792,8 +786,8 @@ export default function App() {
 
               <h2 className={`text-3xl font-black mb-2 ${isWin ? 'text-green-400' : 'text-red-400'}`}>
                 {gameOverReason === 'win' && 'Selamat!'}
-                {gameOverReason === 'wrong_answer' && 'Salah!'}
-                {gameOverReason === 'bomb' && 'Yah! kena bom!'}
+                {gameOverReason === 'wrong_answer' && 'Yah, Salah Jawab!'}
+                {gameOverReason === 'bomb' && 'Yah! Kena Bom!'}
               </h2>
               
               <div className="bg-slate-800 w-full rounded-2xl p-6 text-center mb-8 border border-slate-700">
