@@ -21,8 +21,42 @@ import { GoogleGenAI, Type } from '@google/genai';
 // --- Constants & Types ---
 
 const MAX_THR = 10000;
-const BASKET_WIDTH = 100;
-const BASKET_HEIGHT = 80;
+const BASKET_WIDTH = 110;
+const BASKET_HEIGHT = 85;
+
+const SFX = {
+  CATCH: 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3',
+  BOMB: 'https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3',
+  QUESTION: 'https://assets.mixkit.co/active_storage/sfx/2017/2017-preview.mp3',
+  WIN: 'https://assets.mixkit.co/active_storage/sfx/2015/2015-preview.mp3',
+  LOSE: 'https://assets.mixkit.co/active_storage/sfx/2014/2014-preview.mp3',
+};
+
+class SoundManager {
+  sounds: Record<string, HTMLAudioElement> = {};
+  enabled: boolean = true;
+
+  constructor() {
+    Object.entries(SFX).forEach(([key, url]) => {
+      this.sounds[key] = new Audio(url);
+      this.sounds[key].preload = 'auto';
+    });
+  }
+
+  play(key: keyof typeof SFX) {
+    if (!this.enabled) return;
+    const sound = this.sounds[key];
+    if (sound) {
+      sound.currentTime = 0;
+      sound.play().catch(() => {}); // Ignore autoplay blocks
+    }
+  }
+
+  toggle() {
+    this.enabled = !this.enabled;
+    return this.enabled;
+  }
+}
 
 interface Question {
   text: string;
@@ -50,7 +84,10 @@ class GameEngine {
   width: number = 0;
   height: number = 0;
   
-  basket = { x: 0, y: 0, w: BASKET_WIDTH, h: BASKET_HEIGHT, speed: 800 };
+  basket = { 
+    x: 0, y: 0, vx: 0, w: BASKET_WIDTH, h: BASKET_HEIGHT, speed: 1200,
+    scaleX: 1, scaleY: 1
+  };
   items: any[] = [];
   particles: any[] = [];
   
@@ -68,17 +105,20 @@ class GameEngine {
     onQuestion: () => void;
   };
 
-  constructor(canvas: HTMLCanvasElement, callbacks: any) {
+  soundManager: SoundManager;
+
+  constructor(canvas: HTMLCanvasElement, callbacks: any, soundManager: SoundManager) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.callbacks = callbacks;
+    this.soundManager = soundManager;
     
     this.resize();
     window.addEventListener('resize', this.resize);
     
     this.targetX = this.width / 2 - this.basket.w / 2;
     this.basket.x = this.targetX;
-    this.basket.y = this.height - this.basket.h - 20;
+    this.basket.y = this.height - this.basket.h - 40;
   }
 
   destroy() {
@@ -93,7 +133,7 @@ class GameEngine {
       this.canvas.height = rect.height;
       this.width = rect.width;
       this.height = rect.height;
-      this.basket.y = this.height - this.basket.h - 20;
+      this.basket.y = this.height - this.basket.h - 40;
     }
   }
 
@@ -131,43 +171,50 @@ class GameEngine {
     let value = 0;
     let vx = 0;
     let vyMult = 1;
+    let emoji = '💰';
 
     if (rand < 0.15) {
       type = 'bomb';
+      emoji = '💣';
     } else if (rand < 0.19) {
       type = 'question';
+      emoji = '❓';
     } else if (rand < 0.34) {
       type = 'money';
       value = [500, 1000][Math.floor(Math.random() * 2)];
-      vx = (Math.random() > 0.5 ? 1 : -1) * (100 + Math.random() * 200);
-      vyMult = 1.6;
+      vx = (Math.random() > 0.5 ? 1 : -1) * (150 + Math.random() * 250);
+      vyMult = 1.8;
+      emoji = value === 1000 ? '💵' : '💰';
     } else {
       type = 'money';
       value = [100, 200][Math.floor(Math.random() * 2)];
+      emoji = '🪙';
     }
 
     this.items.push({
       id: Math.random(),
       type,
       value,
+      emoji,
       x: Math.random() * (this.width - 60),
-      y: -60,
+      y: -80,
       w: 60,
       h: 60,
       vx,
       vyMult,
       rotation: 0,
-      rotSpeed: (Math.random() - 0.5) * 5
+      rotSpeed: (Math.random() - 0.5) * 8
     });
   }
 
   createParticles(x: number, y: number, color: string) {
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 20; i++) {
       this.particles.push({
         x, y,
-        vx: (Math.random() - 0.5) * 300,
-        vy: (Math.random() - 0.5) * 300,
+        vx: (Math.random() - 0.5) * 400,
+        vy: (Math.random() - 0.5) * 400,
         life: 1.0,
+        size: 2 + Math.random() * 6,
         color
       });
     }
@@ -176,7 +223,7 @@ class GameEngine {
   loop = (time: number) => {
     if (this.isPaused) return;
 
-    const dt = Math.min(time - this.lastTime, 50) / 1000; // in seconds
+    const dt = Math.min(time - this.lastTime, 50) / 1000;
     this.lastTime = time;
 
     this.update(dt);
@@ -186,24 +233,31 @@ class GameEngine {
   }
 
   update(dt: number) {
-    // Move basket via keyboard
+    // Springy movement for basket
     if (this.keys.left) this.targetX -= this.basket.speed * dt;
     if (this.keys.right) this.targetX += this.basket.speed * dt;
     
-    // Clamp target
     this.targetX = Math.max(0, Math.min(this.width - this.basket.w, this.targetX));
     
-    // Smooth follow (lerp)
-    this.basket.x += (this.targetX - this.basket.x) * 15 * dt;
+    // Spring physics
+    const springK = 250;
+    const damping = 0.85;
+    const ax = (this.targetX - this.basket.x) * springK;
+    this.basket.vx = (this.basket.vx + ax * dt) * damping;
+    this.basket.x += this.basket.vx * dt;
+
+    // Recover basket scale
+    this.basket.scaleX += (1 - this.basket.scaleX) * 12 * dt;
+    this.basket.scaleY += (1 - this.basket.scaleY) * 12 * dt;
 
     // Spawn items
     this.spawnTimer += dt;
-    if (this.spawnTimer > 0.8) {
+    if (this.spawnTimer > 0.75) {
       this.spawnItem();
       this.spawnTimer = 0;
     }
 
-    const baseSpeed = this.height / 3; // Fall from top to bottom in 3 seconds
+    const baseSpeed = this.height / 2.8;
 
     // Update items
     for (let i = this.items.length - 1; i >= 0; i--) {
@@ -212,27 +266,32 @@ class GameEngine {
       item.x += item.vx * dt;
       item.rotation += item.rotSpeed * dt;
 
-      // Bounce off walls
       if (item.x <= 0 || item.x >= this.width - item.w) {
         item.vx *= -1;
         item.x = Math.max(0, Math.min(this.width - item.w, item.x));
       }
 
-      // Collision Detection (AABB)
+      // Collision Detection
       if (
         item.y + item.h >= this.basket.y &&
-        item.y <= this.basket.y + this.basket.h &&
+        item.y <= this.basket.y + 20 &&
         item.x + item.w >= this.basket.x &&
         item.x <= this.basket.x + this.basket.w
       ) {
-        // Caught
+        // Juice: Squash basket
+        this.basket.scaleX = 1.25;
+        this.basket.scaleY = 0.75;
+
         if (item.type === 'money') {
+          this.soundManager.play('CATCH');
           this.callbacks.onScore(item.value);
           this.createParticles(item.x + item.w/2, item.y + item.h/2, '#facc15');
         } else if (item.type === 'bomb') {
+          this.soundManager.play('BOMB');
           this.callbacks.onBomb();
           this.createParticles(item.x + item.w/2, item.y + item.h/2, '#ef4444');
         } else if (item.type === 'question') {
+          this.soundManager.play('QUESTION');
           this.callbacks.onQuestion();
           this.createParticles(item.x + item.w/2, item.y + item.h/2, '#a855f7');
         }
@@ -240,7 +299,6 @@ class GameEngine {
         continue;
       }
 
-      // Missed (out of bounds)
       if (item.y > this.height) {
         this.items.splice(i, 1);
       }
@@ -251,92 +309,91 @@ class GameEngine {
       const p = this.particles[i];
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      p.life -= dt * 2;
+      p.vy += 500 * dt; // Gravity on particles
+      p.life -= dt * 1.5;
       if (p.life <= 0) this.particles.splice(i, 1);
     }
   }
 
   draw() {
-    // Clear canvas
     this.ctx.clearRect(0, 0, this.width, this.height);
 
-    // Draw Basket
-    this.ctx.fillStyle = '#c2410c'; // orange-700
+    // Draw Basket (Better visual)
+    const bx = this.basket.x;
+    const by = this.basket.y;
+    const bw = this.basket.w;
+    const bh = this.basket.h;
+
+    this.ctx.save();
+    this.ctx.translate(bx + bw / 2, by + bh / 2);
+    this.ctx.scale(this.basket.scaleX, this.basket.scaleY);
+    this.ctx.translate(-(bx + bw / 2), -(by + bh / 2));
+
+    // Basket Body
+    const gradient = this.ctx.createLinearGradient(bx, by, bx, by + bh);
+    gradient.addColorStop(0, '#ea580c');
+    gradient.addColorStop(1, '#9a3412');
+    
+    this.ctx.fillStyle = gradient;
     this.ctx.beginPath();
     if (this.ctx.roundRect) {
-      this.ctx.roundRect(this.basket.x, this.basket.y, this.basket.w, this.basket.h, [24, 24, 12, 12]);
+      this.ctx.roundRect(bx, by, bw, bh, [10, 10, 30, 30]);
     } else {
-      this.ctx.rect(this.basket.x, this.basket.y, this.basket.w, this.basket.h);
+      this.ctx.rect(bx, by, bw, bh);
     }
     this.ctx.fill();
     
-    // Basket Top Rim
-    this.ctx.fillStyle = '#9a3412'; // orange-800
-    this.ctx.fillRect(this.basket.x, this.basket.y, this.basket.w, 8);
-
-    // Basket Inner Detail
-    this.ctx.fillStyle = 'rgba(234, 88, 12, 0.5)'; // orange-600/50
+    // Basket Rim
+    this.ctx.fillStyle = '#7c2d12';
     this.ctx.beginPath();
-    this.ctx.arc(this.basket.x + this.basket.w / 2, this.basket.y + this.basket.h / 2, 16, 0, Math.PI * 2);
+    if (this.ctx.roundRect) {
+      this.ctx.roundRect(bx - 5, by - 5, bw + 10, 15, 8);
+    } else {
+      this.ctx.rect(bx - 5, by - 5, bw + 10, 15);
+    }
     this.ctx.fill();
+
+    // Basket Texture (Lines)
+    this.ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+    this.ctx.lineWidth = 2;
+    for(let i = 1; i < 4; i++) {
+      this.ctx.beginPath();
+      this.ctx.moveTo(bx + (bw/4)*i, by + 15);
+      this.ctx.lineTo(bx + (bw/4)*i, by + bh - 10);
+      this.ctx.stroke();
+    }
+
+    this.ctx.restore();
 
     // Draw Items
     for (const item of this.items) {
       const cx = item.x + item.w / 2;
       const cy = item.y + item.h / 2;
-      const r = item.w / 2;
 
       this.ctx.save();
       this.ctx.translate(cx, cy);
       this.ctx.rotate(item.rotation);
 
+      // Draw Shadow
+      this.ctx.shadowBlur = 10;
+      this.ctx.shadowColor = 'rgba(0,0,0,0.2)';
+      this.ctx.shadowOffsetY = 5;
+
+      // Draw Emoji as Item
+      this.ctx.font = '45px serif';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(item.emoji, 0, 0);
+
+      // Draw Value Text for Money
       if (item.type === 'money') {
-        // Coin Base
-        this.ctx.beginPath();
-        this.ctx.arc(0, 0, r, 0, Math.PI * 2);
-        this.ctx.fillStyle = '#facc15';
-        this.ctx.fill();
-        this.ctx.lineWidth = 4;
-        this.ctx.strokeStyle = '#ca8a04';
-        this.ctx.stroke();
-        
-        // Coin Text
-        this.ctx.fillStyle = '#713f12';
-        this.ctx.font = 'bold 12px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        this.ctx.fillText(`Rp${item.value}`, 0, 0);
-      } else if (item.type === 'bomb') {
-        // Bomb Base
-        this.ctx.beginPath();
-        this.ctx.arc(0, 0, r, 0, Math.PI * 2);
-        this.ctx.fillStyle = '#0f172a';
-        this.ctx.fill();
-        this.ctx.lineWidth = 4;
-        this.ctx.strokeStyle = '#334155';
-        this.ctx.stroke();
-
-        // Bomb Fuse/Top
-        this.ctx.fillStyle = '#ef4444';
-        this.ctx.beginPath();
-        this.ctx.arc(0, -r + 8, 6, 0, Math.PI * 2);
-        this.ctx.fill();
-      } else if (item.type === 'question') {
-        // Question Base
-        this.ctx.beginPath();
-        this.ctx.arc(0, 0, r, 0, Math.PI * 2);
-        this.ctx.fillStyle = '#a855f7';
-        this.ctx.fill();
-        this.ctx.lineWidth = 4;
-        this.ctx.strokeStyle = '#7e22ce';
-        this.ctx.stroke();
-
-        // Question Mark
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.font = 'bold 24px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        this.ctx.fillText('?', 0, 2);
+        this.ctx.shadowBlur = 0;
+        this.ctx.fillStyle = 'white';
+        this.ctx.strokeStyle = 'black';
+        this.ctx.lineWidth = 3;
+        this.ctx.font = 'bold 14px sans-serif';
+        this.ctx.strokeText(`Rp${item.value}`, 0, 25);
+        this.ctx.fillText(`Rp${item.value}`, 0, 25);
       }
 
       this.ctx.restore();
@@ -347,7 +404,7 @@ class GameEngine {
       this.ctx.globalAlpha = Math.max(0, p.life);
       this.ctx.fillStyle = p.color;
       this.ctx.beginPath();
-      this.ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+      this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       this.ctx.fill();
     }
     this.ctx.globalAlpha = 1.0;
@@ -363,10 +420,12 @@ export default function App() {
   const [activeQuestion, setActiveQuestion] = useState<Question | null>(null);
   const [isWin, setIsWin] = useState(false);
   const [isGeneratingQuestion, setIsGeneratingQuestion] = useState(false);
+  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
   const gameAreaRef = useRef<HTMLDivElement>(null);
+  const soundManagerRef = useRef<SoundManager>(new SoundManager());
 
   const generateQuestion = async () => {
     setGameState('paused');
@@ -421,6 +480,7 @@ export default function App() {
           });
         },
         onBomb: () => {
+          soundManagerRef.current.play('LOSE');
           setGameState('gameover');
           setIsWin(false);
           engineRef.current?.stop();
@@ -428,7 +488,7 @@ export default function App() {
         onQuestion: () => {
           generateQuestion();
         }
-      });
+      }, soundManagerRef.current);
       engineRef.current.start();
     }
 
@@ -479,6 +539,7 @@ export default function App() {
   };
 
   const handleWin = () => {
+    soundManagerRef.current.play('WIN');
     setGameState('gameover');
     setIsWin(true);
     engineRef.current?.stop();
@@ -493,16 +554,23 @@ export default function App() {
   const handleAnswer = (idx: number) => {
     if (activeQuestion && idx === activeQuestion.correctIndex) {
       // Correct
+      soundManagerRef.current.play('CATCH');
       setActiveQuestion(null);
       setGameState('playing');
       engineRef.current?.resume();
     } else {
       // Wrong
+      soundManagerRef.current.play('LOSE');
       setActiveQuestion(null);
       setGameState('gameover');
       setIsWin(false);
       engineRef.current?.stop();
     }
+  };
+
+  const toggleSound = () => {
+    const newState = soundManagerRef.current.toggle();
+    setIsSoundEnabled(newState);
   };
 
   const shareResult = async () => {
@@ -604,9 +672,18 @@ export default function App() {
         {/* HUD Overlay */}
         {gameState !== 'start' && (
           <div className="absolute top-6 left-0 right-0 px-6 z-40 flex justify-between items-start pointer-events-none">
-            <div className="bg-slate-900/80 p-3 rounded-2xl border border-white/10">
-              <div className="text-[10px] uppercase tracking-widest text-white/60 font-bold">Pemain</div>
-              <div className="text-sm font-bold truncate max-w-[100px]">{playerName}</div>
+            <div className="flex flex-col gap-2">
+              <div className="bg-slate-900/80 p-3 rounded-2xl border border-white/10">
+                <div className="text-[10px] uppercase tracking-widest text-white/60 font-bold">Pemain</div>
+                <div className="text-sm font-bold truncate max-w-[100px]">{playerName}</div>
+              </div>
+              <button 
+                onClick={toggleSound}
+                className="pointer-events-auto bg-slate-900/80 p-2 rounded-xl border border-white/10 flex items-center justify-center w-fit"
+              >
+                {isSoundEnabled ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : <XCircle className="w-4 h-4 text-red-400" />}
+                <span className="text-[10px] ml-1 font-bold">{isSoundEnabled ? 'SOUND ON' : 'SOUND OFF'}</span>
+              </button>
             </div>
             <div className="bg-slate-900/80 p-3 rounded-2xl border border-white/10 text-right">
               <div className="text-[10px] uppercase tracking-widest text-white/60 font-bold">Total THR</div>
