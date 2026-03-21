@@ -20,7 +20,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 // --- Constants & Types ---
 
-const MAX_THR = 10000;
+const MAX_THR = 20000;
 const BASKET_WIDTH = 110;
 const BASKET_HEIGHT = 85;
 
@@ -173,21 +173,36 @@ class GameEngine {
     let vyMult = 1;
     let emoji = '💰';
 
-    if (rand < 0.15) {
+    if (rand < 0.001) {
+      // Rare 5000 (0.1%)
+      type = 'money';
+      value = 5000;
+      emoji = '🧧';
+      vyMult = 1.2;
+    } else if (rand < 0.101) {
+      // Bomb (10%)
       type = 'bomb';
       emoji = '💣';
-    } else if (rand < 0.19) {
+    } else if (rand < 0.131) {
+      // Question (3%)
       type = 'question';
       emoji = '❓';
-    } else if (rand < 0.34) {
+    } else if (rand < 0.331) {
+      // Gold/Bills (20%) - Fast & Zigzag
       type = 'money';
       value = [500, 1000][Math.floor(Math.random() * 2)];
       vx = (Math.random() > 0.5 ? 1 : -1) * (150 + Math.random() * 250);
       vyMult = 1.8;
       emoji = value === 1000 ? '💵' : '💰';
-    } else {
+    } else if (rand < 0.631) {
+      // Silver 100, 200 (30%)
       type = 'money';
       value = [100, 200][Math.floor(Math.random() * 2)];
+      emoji = '🪙';
+    } else {
+      // Silver 50 (Approx 37%)
+      type = 'money';
+      value = 50;
       emoji = '🪙';
     }
 
@@ -421,6 +436,7 @@ export default function App() {
   const [isWin, setIsWin] = useState(false);
   const [isGeneratingQuestion, setIsGeneratingQuestion] = useState(false);
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
+  const [gameOverReason, setGameOverReason] = useState<'win' | 'bomb' | 'wrong_answer' | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<GameEngine | null>(null);
@@ -481,6 +497,7 @@ export default function App() {
         },
         onBomb: () => {
           soundManagerRef.current.play('LOSE');
+          setGameOverReason('bomb');
           setGameState('gameover');
           setIsWin(false);
           engineRef.current?.stop();
@@ -534,12 +551,14 @@ export default function App() {
     }
     setScore(0);
     setIsWin(false);
+    setGameOverReason(null);
     setActiveQuestion(null);
     setGameState('playing');
   };
 
   const handleWin = () => {
     soundManagerRef.current.play('WIN');
+    setGameOverReason('win');
     setGameState('gameover');
     setIsWin(true);
     engineRef.current?.stop();
@@ -561,6 +580,7 @@ export default function App() {
     } else {
       // Wrong
       soundManagerRef.current.play('LOSE');
+      setGameOverReason('wrong_answer');
       setActiveQuestion(null);
       setGameState('gameover');
       setIsWin(false);
@@ -767,11 +787,13 @@ export default function App() {
               )}
 
               <h2 className={`text-3xl font-black mb-2 ${isWin ? 'text-green-400' : 'text-red-400'}`}>
-                {isWin ? 'MENANG BANYAK!' : 'YAH KETAHUAN!'}
+                {gameOverReason === 'win' && 'Selamat!'}
+                {gameOverReason === 'wrong_answer' && 'Salah!'}
+                {gameOverReason === 'bomb' && 'Yah! kena bom!'}
               </h2>
               
               <div className="bg-slate-800 w-full rounded-2xl p-6 text-center mb-8 border border-slate-700">
-                <p className="text-slate-400 text-sm mb-1">Total THR {playerName}</p>
+                <p className="text-slate-400 text-sm mb-1">{playerName} dapat</p>
                 <p className="text-4xl font-black text-yellow-400">Rp {score.toLocaleString('id-ID')}</p>
               </div>
 
