@@ -183,28 +183,28 @@ class GameEngine {
       value = 5000;
       emoji = '🧧';
       vyMult = 1.2;
-    } else if (rand < 0.101) {
-      // Bomb (10%)
+    } else if (rand < 0.151) {
+      // Bomb (15%) - Increased from 10%
       type = 'bomb';
       emoji = '💣';
-    } else if (rand < 0.131) {
+    } else if (rand < 0.181) {
       // Question (3%)
       type = 'question';
       emoji = '❓';
-    } else if (rand < 0.331) {
+    } else if (rand < 0.381) {
       // Gold/Bills (20%) - Fast & Zigzag
       type = 'money';
       value = [500, 1000][Math.floor(Math.random() * 2)];
       vx = (Math.random() > 0.5 ? 1 : -1) * (150 + Math.random() * 250);
       vyMult = 1.8;
       emoji = value === 1000 ? '💵' : '💰';
-    } else if (rand < 0.631) {
+    } else if (rand < 0.681) {
       // Silver 100, 200 (30%)
       type = 'money';
       value = [100, 200][Math.floor(Math.random() * 2)];
       emoji = '🪙';
     } else {
-      // Silver 50 (Approx 37%)
+      // Silver 50 (Approx 31.9%)
       type = 'money';
       value = 50;
       emoji = '🪙';
@@ -456,13 +456,13 @@ export default function App() {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const response = await ai.models.generateContent({
         model: 'gemini-3.1-flash-lite-preview',
-        contents: "Buatkan 1 pertanyaan pilihan ganda lucu dan menjebak seputar lebaran, puasa, atau budaya mudik di Indonesia. Berikan 4 pilihan jawaban dan tentukan index jawaban yang benar (0-3).",
+        contents: "Buatkan 1 pertanyaan pilihan ganda yang shahih dan akurat seputar dasar-dasar Islam, Ramadan, Idul Fitri, atau Lailatul Qadar. Pastikan pertanyaan dan jawaban benar secara syariat. Berikan 4 pilihan jawaban dan tentukan index jawaban yang benar (0-3).",
         config: {
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              text: { type: Type.STRING, description: "Pertanyaan lucu/menjebak" },
+              text: { type: Type.STRING, description: "Pertanyaan shahih seputar Islam" },
               options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "4 pilihan jawaban" },
               correctIndex: { type: Type.INTEGER, description: "Index jawaban benar (0-3)" }
             },
