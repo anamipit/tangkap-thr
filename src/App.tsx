@@ -95,6 +95,7 @@ class GameEngine {
   spawnTimer: number = 0;
   reqId: number = 0;
   isPaused: boolean = false;
+  isActive: boolean = false;
   
   targetX: number = 0;
   keys = { left: false, right: false };
@@ -138,11 +139,14 @@ class GameEngine {
   }
 
   start() {
+    this.isActive = true;
+    this.isPaused = false;
     this.lastTime = performance.now();
     this.reqId = requestAnimationFrame(this.loop);
   }
 
   stop() {
+    this.isActive = false;
     cancelAnimationFrame(this.reqId);
   }
 
@@ -236,7 +240,7 @@ class GameEngine {
   }
 
   loop = (time: number) => {
-    if (this.isPaused) return;
+    if (!this.isActive || this.isPaused) return;
 
     const dt = Math.min(time - this.lastTime, 50) / 1000;
     this.lastTime = time;
