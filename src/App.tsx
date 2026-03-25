@@ -20,7 +20,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 // --- Constants & Types ---
 
-const MAX_THR = 200000;
+const MAX_THR = 20000;
 const BASKET_WIDTH = 110;
 const BASKET_HEIGHT = 85;
 
